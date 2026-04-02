@@ -17,16 +17,22 @@ pub async fn run(model: String, api_key: String, api_base: String) -> Result<()>
 
     loop {
         let user_prompt = get_user_prompt()?;
-        context.add_message({Message::new_user(user_prompt)
-});
-        let client_response = sent_to_ai(&context,&client).await?;
+        let user_message = Message::new_user(user_prompt);
+        println!("{user_message}");
+
+        context.add_message(user_message);
+        
+        
+        let ai_message= sent_to_ai(&context,&client).await?;
+        println!("{ai_message}");
+        context.add_message(ai_message);
     }
 }
 
 pub fn get_user_prompt() -> Result<String> {
     let mut prompt = String::new();
 
-    println!("> ");
+    print!("> ");
     stdout().flush()?;
     stdin().read_line(&mut prompt)?;
 

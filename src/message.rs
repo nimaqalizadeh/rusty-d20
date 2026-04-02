@@ -1,5 +1,6 @@
 use async_openai::types::chat::ChatCompletionResponseMessage;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Message {
@@ -23,6 +24,12 @@ impl Message {
     }
 }
 
+impl Display for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+       write!(f, "{}: {}", self.role, self.content) 
+    }
+}
+
 impl From<ChatCompletionResponseMessage> for Message {
     fn from(value: ChatCompletionResponseMessage) -> Self {
         let role = Role::from(value.role);
@@ -38,7 +45,6 @@ pub enum Role {
     System,
     Assistant,
     Tool,
-    Function,
 }
 
 impl From<async_openai::types::chat::Role> for Role {
@@ -52,3 +58,15 @@ impl From<async_openai::types::chat::Role> for Role {
         }
     }
 }
+
+impl Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let role = match self {
+           Role::System => "System",
+           Role::User => "User",
+           Role::Assistant => "Assistant",
+           Role::Tool => "Tool",
+        };
+        write!(f, "{role}")
+    }
+} 
