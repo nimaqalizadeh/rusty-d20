@@ -1,5 +1,6 @@
 mod context;
 mod message;
+mod tools;
 
 use crate::{context::Context as AIContext, message::Message};
 use async_openai::{Client, config::OpenAIConfig, types::chat::CreateChatCompletionResponse};
@@ -21,9 +22,8 @@ pub async fn run(model: String, api_key: String, api_base: String) -> Result<()>
         println!("{user_message}");
 
         context.add_message(user_message);
-        
-        
-        let ai_message= sent_to_ai(&context,&client).await?;
+
+        let ai_message = sent_to_ai(&context, &client).await?;
         println!("{ai_message}");
         context.add_message(ai_message);
     }
@@ -39,17 +39,15 @@ pub fn get_user_prompt() -> Result<String> {
     Ok(prompt)
 }
 
-pub async fn sent_to_ai(context: &AIContext, 
-                        client: &Client<OpenAIConfig>) -> Result<Message> {
+pub async fn sent_to_ai(context: &AIContext, client: &Client<OpenAIConfig>) -> Result<Message> {
     let response: CreateChatCompletionResponse = client
-                        .chat()
-                        .create_byot(context)
-                        .await
-                        .context("Sending message to AI")?;
-    
+        .chat()
+        .create_byot(context)
+        .await
+        .context("Sending message to AI")?;
+
     let choice = response.choices[0].clone();
 
     let message = Message::from(choice.message);
     Ok(message)
-
 }
