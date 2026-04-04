@@ -45,7 +45,7 @@ pub fn run(arguments: String, id: String) -> Message {
         }
     };
     let random_number = rand::random_range(args.min..=args.max);
-    dbg!(random_number);
+    // dbg!(random_number);
     Message::new_tool(random_number, id)
 }
 

@@ -113,33 +113,52 @@ The entire context (system prompt + all previous messages + new user message) is
 
 The `if !ai_message.content.is_empty()` check exists because when the model decides to call a tool, it often returns an empty `content` field — there's nothing to say to the user yet. Printing an empty message would show `Assistant: ` with nothing after it, so we skip it.
 
-The message is cloned before being added to context because we need to inspect `ai_message.tool_calls` on the next line, but `add_message` takes ownership. `.clone()` gives the context its own copy.
+The message is cloned before being added to context because `add_message` takes ownership. `.clone()` gives the context its own copy. After this line, the message is inside `context.messages` — the `while` loop on line 34 reads it back from there to check for tool calls.
 
-#### 3. Tool dispatch (lines 34-52)
+#### 3. Tool-calling loop (lines 34-58)
 
 ```rust
-if let Some(tool_calls) = ai_message.tool_calls {
-    for tool_call in tool_calls {
-        let name = tool_call.function.name.as_str();
+while context.messages.last().is_some_and(|message| {
+    message
+        .tool_calls
+        .clone()
+        .is_some_and(|tool_calls| !tool_calls.is_empty())
+}) {
+    if let Some(tool_calls) = context.messages.last().cloned().unwrap().tool_calls {
+        for tool_call in tool_calls {
+            let name = tool_call.function.name.as_str();
 
-        let id = tool_call.id;
-        let result = match name {
-            tools::random_number::NAME => {
-                tools::random_number::run(tool_call.function.arguments, id)
-            }
-            _ => Message::new_tool(format!("Error, the tool {name} doesn't exist"), id),
-        };
-
-        context.add_message(result);
+            let id = tool_call.id;
+            let result = match name {
+                tools::random_number::NAME => {
+                    tools::random_number::run(tool_call.function.arguments, id)
+                }
+                _ => Message::new_tool(format!("Error, the tool {name} doesn't exist"), id),
+            };
+            context.add_message(result);
+        }
+        let ai_tool_response = send_to_ai(&context, &client).await?;
+        println!("{ai_tool_response}");
+        context.add_message(ai_tool_response);
     }
-
-    let ai_tool_response = send_to_ai(&context, &client).await?;
-    println!("{ai_tool_response}");
-    context.add_message(ai_tool_response);
 }
 ```
 
-This is the tool execution pipeline. It only runs when the model's response contains tool calls (`if let Some` — if `tool_calls` is `None`, this entire block is skipped and the loop starts over waiting for the next user prompt).
+This is the tool execution pipeline. It uses a `while` loop instead of a one-shot `if`, which means the app can handle **chained tool calls** — when the model's response to a tool result requests *another* tool call, the loop runs again. It keeps going until the last message in the context has no tool calls, meaning the model has produced a final text answer.
+
+**The `while` condition** checks whether the most recent message in the conversation has tool calls:
+
+```rust
+context.messages.last().is_some_and(|message| {
+    message.tool_calls.clone().is_some_and(|tool_calls| !tool_calls.is_empty())
+})
+```
+
+This reads as: "if there is a last message, and it has `tool_calls`, and those tool calls are not empty, keep looping." On the first iteration, the last message is the assistant response from line 32. On subsequent iterations, it's the `ai_tool_response` added at line 56. When the model finally responds with text only (no tool calls), the condition is false and the loop exits.
+
+The `.clone()` on `tool_calls` is needed because `is_some_and` takes ownership of the value inside the `Option`, but we're borrowing the message from `context.messages` — we can't move out of a borrow. Cloning the `Option<Vec<ToolCall>>` lets `is_some_and` consume the clone while leaving the original intact.
+
+**The inner `if let`** might look redundant after the `while` condition, but it serves a different purpose. The `while` condition borrows the last message immutably to check whether tool calls exist. The `if let` then gets an owned copy of the tool calls (via `.cloned().unwrap()`) so we can iterate over them while also mutating `context` (calling `context.add_message`). We can't hold an immutable borrow of `context.messages` and call `&mut self` methods on `context` at the same time — Rust's borrow checker prevents this. Getting a cloned copy first releases the borrow.
 
 **The `match` statement** is the tool dispatch table — it maps tool names to their implementations. `tools::random_number::NAME` is the constant `"random_number"` defined in `random_number.rs:5`. When the model requests a tool, the app matches the name and calls the corresponding `run` function.
 
@@ -149,11 +168,19 @@ This is the tool execution pipeline. It only runs when the model's response cont
 
 **The `for` loop** handles multiple tool calls in a single response. The model can request several tools at once (e.g., "roll 2d6" might produce two separate `random_number` calls). Each result is added to the context individually.
 
-**The second API call** (`send_to_ai` at line 49) sends the updated context — now containing the original messages plus the assistant's tool call request plus all tool results — back to the model. The model sees the complete history and produces the final natural language answer (e.g., "You rolled a 4!").
+**The API call inside the loop** (`send_to_ai` at line 54) sends the updated context — now containing the original messages plus the assistant's tool call request plus all tool results — back to the model. If the model responds with more tool calls, the `while` condition is true again and the loop runs another iteration. If the model responds with a final text answer, the loop exits.
 
-### A note on nested tool calls
+### Example: chained tool calls
 
-The current implementation assumes the model won't request more tool calls in its response to tool results. If it did (which is valid in the API — a model can chain tool calls), the second response's `tool_calls` would be silently ignored because there's no recursive handling. For the current single-tool setup this is fine, but a more robust version would use a `while` loop that keeps sending requests until the model responds with `finish_reason: "stop"` instead of `"tool_calls"`.
+Imagine the model decides it needs two separate pieces of information to answer a question. With the `while` loop, the flow looks like:
+
+```
+Iteration 1:  last message has tool_calls → execute tool → send results → model responds with MORE tool_calls
+Iteration 2:  last message has tool_calls → execute tool → send results → model responds with text only
+Loop exits:   last message has no tool_calls
+```
+
+Without the loop (with a one-shot `if`), the second set of tool calls would be silently ignored and the model's answer would be incomplete.
 
 ---
 
@@ -197,7 +224,7 @@ pub async fn send_to_ai(context: &AIContext, client: &Client<OpenAIConfig>) -> R
 }
 ```
 
-This function handles a single API round-trip. It's called twice during a tool-calling interaction and once for a simple text response.
+This function handles a single API round-trip. It's called once for a simple text response, twice for a single tool-calling interaction, and potentially more times if the model chains multiple rounds of tool calls.
 
 ### `create_byot(context)`
 

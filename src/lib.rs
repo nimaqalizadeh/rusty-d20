@@ -31,7 +31,14 @@ pub async fn run(model: String, api_key: String, api_base: String) -> Result<()>
 
         context.add_message(ai_message.clone());
 
-        if let Some(tool_calls) = ai_message.tool_calls {
+        while context.messages.last().is_some_and(|message| {
+            message
+                   .tool_calls
+                   .clone()
+                   .is_some_and(|tool_calls| !tool_calls.is_empty())
+        }) {
+
+        if let Some(tool_calls) = context.messages.last().cloned().unwrap().tool_calls {
             for tool_call in tool_calls {
                 let name = tool_call.function.name.as_str();
 
@@ -42,13 +49,12 @@ pub async fn run(model: String, api_key: String, api_base: String) -> Result<()>
                     }
                     _ => Message::new_tool(format!("Error, the tool {name} doesn't exist"), id),
                 };
-
                 context.add_message(result);
             }
-
             let ai_tool_response = send_to_ai(&context, &client).await?;
             println!("{ai_tool_response}");
             context.add_message(ai_tool_response);
+            }
         }
     }
 }
