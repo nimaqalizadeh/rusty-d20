@@ -2,7 +2,7 @@ use async_openai::types::chat::{ChatCompletionMessageToolCalls, ChatCompletionRe
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Message {
     pub role: Role,
     pub content: String,
@@ -25,6 +25,14 @@ impl Message {
             tool_calls: None,
         }
     }
+
+    pub fn new_tool(content: impl ToString) -> Self {
+        Self {
+            role: Role::Tool,
+            content: content.to_string(),
+            tool_calls: None,
+        }
+    }
 }
 
 impl Display for Message {
@@ -40,7 +48,7 @@ impl From<ChatCompletionResponseMessage> for Message {
         let tool_calls = value.tool_calls.map(|response_tool_calls| {
             response_tool_calls
                 .into_iter()
-                .map(|response_tool_call| ToolCall::from(response_tool_call))
+                .map(ToolCall::from)
                 .collect()
         });
         Self {
@@ -51,7 +59,7 @@ impl From<ChatCompletionResponseMessage> for Message {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     User,
@@ -90,9 +98,14 @@ impl From<ChatCompletionMessageToolCalls> for ToolCall {
             ChatCompletionMessageToolCalls::Function(chat_completion_message_tool_call) => {
                 let id = chat_completion_message_tool_call.id;
                 let tool_call_type = "function".to_owned();
-                todo!()
+                let function = ToolCallFunction::from(chat_completion_message_tool_call.function);
+                Self {
+                    tool_call_type,
+                    id,
+                    function,
+                }
             }
-            ChatCompletionMessageToolCalls::Custom(_) => todo!(),
+            ChatCompletionMessageToolCalls::Custom(_) => unreachable!(),
         }
     }
 }
@@ -105,7 +118,7 @@ impl From<async_openai::types::assistants::FunctionCall> for ToolCallFunction {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ToolCall {
     #[serde(rename = "type")]
     pub tool_call_type: String,
@@ -113,7 +126,7 @@ pub struct ToolCall {
     pub function: ToolCallFunction,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ToolCallFunction {
     pub name: String,
     pub arguments: String,
