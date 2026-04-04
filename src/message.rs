@@ -7,6 +7,7 @@ pub struct Message {
     pub role: Role,
     pub content: String,
     pub tool_calls: Option<Vec<ToolCall>>,
+    pub tool_call_id: Option<String>,
 }
 
 impl Message {
@@ -15,6 +16,7 @@ impl Message {
             role: Role::System,
             content,
             tool_calls: None,
+            tool_call_id: None,
         }
     }
 
@@ -23,14 +25,16 @@ impl Message {
             role: Role::User,
             content,
             tool_calls: None,
+            tool_call_id: None,
         }
     }
 
-    pub fn new_tool(content: impl ToString) -> Self {
+    pub fn new_tool(content: impl ToString, id: String) -> Self {
         Self {
             role: Role::Tool,
             content: content.to_string(),
             tool_calls: None,
+            tool_call_id: Some(id),
         }
     }
 }
@@ -55,6 +59,7 @@ impl From<ChatCompletionResponseMessage> for Message {
             role,
             content,
             tool_calls,
+            tool_call_id: None,
         }
     }
 }

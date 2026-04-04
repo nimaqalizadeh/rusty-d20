@@ -24,7 +24,10 @@ pub async fn run(model: String, api_key: String, api_base: String) -> Result<()>
         context.add_message(user_message);
 
         let ai_message = send_to_ai(&context, &client).await?;
-        println!("{ai_message}");
+
+        if !ai_message.content.is_empty() {
+            println!("{ai_message}");
+        }
 
         context.add_message(ai_message.clone());
 
@@ -32,19 +35,18 @@ pub async fn run(model: String, api_key: String, api_base: String) -> Result<()>
             for tool_call in tool_calls {
                 let name = tool_call.function.name.as_str();
 
+                let id = tool_call.id;
                 let result = match name {
                     tools::random_number::NAME => {
-                        tools::random_number::run(tool_call.function.arguments)
+                        tools::random_number::run(tool_call.function.arguments, id)
                     }
-                    _ => Message::new_tool(format!("Error, the tool {name} doesn't exist")),
+                    _ => Message::new_tool(format!("Error, the tool {name} doesn't exist"), id),
                 };
 
                 context.add_message(result);
             }
 
-            dbg!(&context);
             let ai_tool_response = send_to_ai(&context, &client).await?;
-            dbg!(&ai_tool_response);
             println!("{ai_tool_response}");
             context.add_message(ai_tool_response);
         }
@@ -58,7 +60,7 @@ pub fn get_user_prompt() -> Result<String> {
     stdout().flush()?;
     stdin().read_line(&mut prompt)?;
 
-    Ok(prompt)
+    Ok(prompt.trim().to_owned())
 }
 
 pub async fn send_to_ai(context: &AIContext, client: &Client<OpenAIConfig>) -> Result<Message> {
